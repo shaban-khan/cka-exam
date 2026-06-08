@@ -1,0 +1,40 @@
+# Gateway YAML - Required vs Optional
+
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+
+metadata:
+  name: company-gateway              # Required
+
+spec:
+
+  gatewayClassName: nginx            # Required
+
+  listeners:
+
+  - name: http                       # Required
+    protocol: HTTP                   # Required
+    port: 80                         # Required
+
+    hostname: company.com            # Optional
+
+    allowedRoutes:                   # Optional
+      namespaces:
+        from: All
+
+  - name: https                      # Required
+    protocol: HTTPS                  # Required
+    port: 443                        # Required
+
+    hostname: company.com            # Optional
+
+    tls:                             # Optional (Required for HTTPS)
+      mode: Terminate
+      certificateRefs:
+      - name: company-tls
+
+    allowedRoutes:                   # Optional
+      namespaces:
+        from: All
+
+
