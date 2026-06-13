@@ -303,7 +303,8 @@ Startup   = Boot-up
 ```
 
 ## Example
-``bash
+
+```bash
 apiVersion: v1
 kind: Pod
 metadata:
