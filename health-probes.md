@@ -302,4 +302,35 @@ Liveness  = Restart
 Startup   = Boot-up
 ```
 
-If you remember only that line, you'll answer most probe-related CKA questions correctly.
+## Example
+``bash
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-probes
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+
+    startupProbe:
+      httpGet:
+        path: /
+        port: 80
+      periodSeconds: 5
+      failureThreshold: 6
+
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 10
+
+    livenessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 10
+      periodSeconds: 15
+    ```
