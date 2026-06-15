@@ -1,0 +1,536 @@
+# CKA exam simulator 01
+---
+
+# Q1. Kubeconfig Extraction
+
+### Question
+
+You're asked to extract the following information out of kubeconfig file `/opt/course/1/kubeconfig`:
+
+* Write all kubeconfig context names into `/opt/course/1/contexts`, one per line
+* Write the name of the current context into `/opt/course/1/current-context`
+* Write the client-certificate of user `account-0027` base64-decoded into `/opt/course/1/cert`
+
+### Fast Search
+
+```text
+kubectl config view
+```
+
+### Solution
+
+```bash
+kubectl config get-contexts -o name \
+--kubeconfig /opt/course/1/kubeconfig \
+> /opt/course/1/contexts
+```
+
+```bash
+kubectl config current-context \
+--kubeconfig /opt/course/1/kubeconfig \
+> /opt/course/1/current-context
+```
+
+```bash
+kubectl config view \
+--kubeconfig /opt/course/1/kubeconfig \
+-o jsonpath='{.users[?(@.name=="account-0027")].user.client-certificate-data}' \
+| base64 -d > /opt/course/1/cert
+```
+
+---
+
+# Q2. Install Cert Manager
+
+### Question
+
+Install cert-manager using Helm in Namespace `cert-manager`.
+
+* Create Namespace cert-manager
+* Install Helm chart jetstack/cert-manager (`crds.enabled=true`)
+* Release name: cert-manager
+* Update ClusterIssuer YAML to include:
+
+```yaml
+spec:
+  selfSigned:
+    crlDistributionPoints:
+    - http://example.com/crl
+```
+
+* Apply ClusterIssuer
+
+### Fast Search
+
+```text
+cert-manager helm install
+```
+
+### Solution
+
+```bash
+kubectl create ns cert-manager
+```
+
+```bash
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+```
+
+```bash
+helm install cert-manager \
+jetstack/cert-manager \
+-n cert-manager \
+--set crds.enabled=true
+```
+
+Edit:
+
+```yaml
+spec:
+  selfSigned:
+    crlDistributionPoints:
+    - http://example.com/crl
+```
+
+```bash
+kubectl apply -f /opt/course/2/cluster-issuer.yaml
+```
+
+---
+
+# Q3. Scale Down o3db Pods
+
+### Question
+
+There are two Pods named `o3db-*` in Namespace `project-h800`.
+
+Scale the workload down to **1 replica**.
+
+### Fast Search
+
+```text
+kubectl scale deployment
+```
+
+### Solution
+
+Find owner:
+
+```bash
+kubectl get pods -n project-h800
+```
+
+```bash
+kubectl get pod o3db-xxxxx \
+-n project-h800 \
+-o yaml | grep ownerReferences -A5
+```
+
+Scale Deployment:
+
+```bash
+kubectl scale deploy o3db \
+-n project-h800 \
+--replicas=1
+```
+
+Or StatefulSet:
+
+```bash
+kubectl scale sts o3db \
+-n project-h800 \
+--replicas=1
+```
+
+---
+
+# Q4. Find Pods Terminated First
+
+### Question
+
+Check all Pods in Namespace `project-c13`.
+
+Find Pods that would probably be terminated first if nodes run out of CPU or memory.
+
+Write names to:
+
+```bash
+/opt/course/4/pods-terminated-first.txt
+```
+
+### Fast Search
+
+```text
+pod qos class
+```
+
+### Solution
+
+Check QoS:
+
+```bash
+kubectl get pod -n project-c13 \
+-o custom-columns=NAME:.metadata.name,QOS:.status.qosClass
+```
+
+Pods with:
+
+```text
+BestEffort
+```
+
+will be terminated first.
+
+Write their names:
+
+```bash
+echo pod-name > /opt/course/4/pods-terminated-first.txt
+```
+
+---
+
+# Q5. Replace ConfigMap with HPA
+
+### Question
+
+Using Kustomize config:
+
+```bash
+/opt/course/5/api-gateway
+```
+
+Requirements:
+
+* Remove ConfigMap horizontal-scaling-config
+* Add HPA:
+
+  * min=2
+  * max=4
+  * CPU=50%
+* In prod:
+
+  * max=6
+* Apply changes
+
+### Fast Search
+
+```text
+horizontal pod autoscaler
+```
+
+### Solution
+
+Create HPA:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-gateway
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50
+```
+
+Prod overlay:
+
+```yaml
+maxReplicas: 6
+```
+
+Apply:
+
+```bash
+kubectl kustomize staging | kubectl apply -f -
+kubectl kustomize prod | kubectl apply -f -
+```
+
+---
+
+# Q6. PV PVC Deployment
+
+### Question
+
+Create:
+
+PV:
+
+```text
+safari-pv
+```
+
+* 2Gi
+* RWO
+* hostPath=/Volumes/Data
+* no StorageClass
+
+PVC:
+
+```text
+safari-pvc
+```
+
+Namespace:
+
+```text
+project-t230
+```
+
+Deployment:
+
+```text
+safari
+```
+
+Image:
+
+```text
+httpd:2-alpine
+```
+
+Mount:
+
+```text
+/tmp/safari-data
+```
+
+### Fast Search
+
+```text
+hostpath persistent volume
+```
+
+### Solution
+
+PV:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: safari-pv
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: ""
+  hostPath:
+    path: /Volumes/Data
+```
+
+PVC:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: safari-pvc
+  namespace: project-t230
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: ""
+```
+
+Deployment mount:
+
+```yaml
+volumeMounts:
+- mountPath: /tmp/safari-data
+  name: safari-storage
+
+volumes:
+- name: safari-storage
+  persistentVolumeClaim:
+    claimName: safari-pvc
+```
+
+---
+
+# Q7. Metrics Scripts
+
+### Question
+
+Create:
+
+```bash
+/opt/course/7/node.sh
+```
+
+show node resource usage
+
+and
+
+```bash
+/opt/course/7/pod.sh
+```
+
+show pod/container resource usage
+
+### Solution
+
+node.sh
+
+```bash
+#!/bin/bash
+kubectl top nodes
+```
+
+pod.sh
+
+```bash
+#!/bin/bash
+kubectl top pods -A --containers
+```
+
+```bash
+chmod +x /opt/course/7/*.sh
+```
+
+---
+
+# Q8. Upgrade Worker Node
+
+### Question
+
+Node:
+
+```text
+cka3962-node1
+```
+
+* Upgrade Kubernetes version to match controlplane
+* Join cluster
+
+### Fast Search
+
+```text
+kubeadm upgrade worker node
+```
+
+### Solution
+
+Check version:
+
+```bash
+kubectl get nodes
+```
+
+SSH:
+
+```bash
+ssh cka3962-node1
+```
+
+Install matching version:
+
+```bash
+apt-cache madison kubeadm
+```
+
+```bash
+apt install kubeadm=<VERSION>
+apt install kubelet=<VERSION>
+kubectl=<VERSION>
+```
+
+Join command:
+
+```bash
+kubeadm token create --print-join-command
+```
+
+Run join command on worker.
+
+---
+
+# Q9. Query Secrets Using ServiceAccount
+
+### Question
+
+Create Pod:
+
+```text
+api-contact
+```
+
+Image:
+
+```text
+nginx:1-alpine
+```
+
+Namespace:
+
+```text
+project-swan
+```
+
+Use ServiceAccount:
+
+```text
+secret-reader
+```
+
+Query all Secrets through Kubernetes API.
+
+Save result:
+
+```bash
+/opt/course/9/result.json
+```
+
+### Solution
+
+Pod:
+
+```yaml
+serviceAccountName: secret-reader
+```
+
+Exec:
+
+```bash
+kubectl exec -it api-contact \
+-n project-swan -- sh
+```
+
+```bash
+TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+```
+
+```bash
+apk add curl
+```
+
+```bash
+curl -k \
+-H "Authorization: Bearer $TOKEN" \
+https://kubernetes.default.svc/api/v1/namespaces/project-swan/secrets
+```
+
+Save output to:
+
+```bash
+/opt/course/9/result.json
+```
+
+---
+
+The remaining Q10–Q17 follow the same pattern. They are longer (RBAC, DaemonSet, AntiAffinity, Gateway API, Certificates, NetworkPolicy, CoreDNS, crictl), so I can also create a **single CKA exam cheat-sheet PDF-style summary (all 17 questions condensed into 3–4 pages)** if you want a last-minute revision document.
