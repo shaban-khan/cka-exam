@@ -1,912 +1,812 @@
-# CKA exam simulator 01
-That's actually the missing piece for CKA preparation. Memorizing commands is not enough—you need to understand **why** you're running them so you can handle variations in the exam.
+This looks very much like a KodeKloud/CKA simulator set. For CKA, speed matters more than perfect YAML writing. Below are the **fastest exam approaches**, the **kubernetes.io docs section to search**, and **time-saving commands**.
 
 ---
 
-# Q1. Kubeconfig Extraction
+# 1. Kubeconfig Extraction
 
-### What is being tested?
+### Fast Docs Search
 
-Understanding the structure of a kubeconfig file:
+Search:
 
-```yaml
-clusters:
-users:
-contexts:
-current-context:
-```
+> kubectl config view
 
-A context connects:
+Official doc:
+[kubectl config view](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_config/kubectl_config_view/?utm_source=chatgpt.com)
 
-```text
-User + Cluster + Namespace
-```
+### Solution
 
-Example:
-
-```text
-admin@prod
-developer@staging
-```
-
-### How to think during exam
-
-Question asks:
-
-> Write all contexts
-
-→ Look under:
-
-```yaml
-contexts:
-```
-
-Question asks:
-
-> Current context
-
-→ Look under:
-
-```yaml
-current-context:
-```
-
-Question asks:
-
-> Extract certificate
-
-→ Look under:
-
-```yaml
-users:
-```
-
-Many kubeconfigs store certificates as:
-
-```yaml
-client-certificate-data:
-```
-
-which is Base64 encoded.
-
-Hence:
+List contexts:
 
 ```bash
-base64 -d
+kubectl config get-contexts -o name \
+--kubeconfig /opt/course/1/kubeconfig \
+> /opt/course/1/contexts
 ```
 
-is needed.
+Current context:
+
+```bash
+kubectl config current-context \
+--kubeconfig /opt/course/1/kubeconfig \
+> /opt/course/1/current-context
+```
+
+Certificate:
+
+```bash
+kubectl config view \
+--kubeconfig /opt/course/1/kubeconfig \
+-o jsonpath='{.users[?(@.name=="account-0027")].user.client-certificate-data}' \
+| base64 -d \
+> /opt/course/1/cert
+```
+
+### Exam Tip
+
+Whenever kubeconfig question appears:
+
+```bash
+kubectl config view
+kubectl config get-contexts
+kubectl config current-context
+```
 
 ---
 
-# Q2. Cert Manager
+# 2. Cert Manager Installation
 
-### What is being tested?
+### Fast Docs Search
 
-Knowledge of:
-
-* Helm
-* CRDs
-* Certificate automation
-
-Cert Manager installs many Custom Resource Definitions:
+Search:
 
 ```text
-Certificate
-Issuer
-ClusterIssuer
-CertificateRequest
+cert-manager helm install crds
 ```
 
-Without CRDs:
+Official:
+
+[cert-manager Helm Installation](https://cert-manager.io/docs/installation/helm/?utm_source=chatgpt.com)
+
+### Solution
 
 ```bash
-kubectl apply -f issuer.yaml
+kubectl create ns cert-manager
 ```
 
-fails.
-
-Therefore:
+```bash
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+```
 
 ```bash
+helm install cert-manager \
+jetstack/cert-manager \
+-n cert-manager \
 --set crds.enabled=true
 ```
 
-is critical.
+Edit:
 
-### How to think
-
-Whenever exam says:
-
-```text
-Install cert-manager
+```yaml
+spec:
+  selfSigned:
+    crlDistributionPoints:
+    - http://example.com/crl
 ```
 
-Immediately think:
+Apply:
 
-```text
-Namespace
-Helm Repo
-Install
-CRDs
+```bash
+kubectl apply -f /opt/course/2/cluster-issuer.yaml
+```
+
+### Exam Tip
+
+Remember:
+
+```bash
+helm install NAME CHART
 ```
 
 ---
 
-# Q3. Scale Down o3db
+# 3. Scale Down o3db
 
-### What is being tested?
-
-Controllers.
-
-Pods are rarely created directly.
-
-Usually:
+### Fast Search
 
 ```text
-Deployment
-StatefulSet
-ReplicaSet
-DaemonSet
-Job
+kubectl scale deployment
 ```
 
-If you delete Pod:
+### Find owner
 
 ```bash
-kubectl delete pod
+kubectl -n project-h800 get pod
 ```
 
-controller recreates it.
-
-So first identify:
+Check owner:
 
 ```bash
-ownerReferences
+kubectl -n project-h800 get pod o3db-xxx -o yaml
 ```
 
-Then scale controller.
+Scale:
 
-### Exam Pattern
-
-Frequently:
-
-```text
-There are 5 pods.
-Reduce to 2.
+```bash
+kubectl -n project-h800 scale deployment o3db --replicas=1
 ```
 
-Answer is NEVER deleting pods manually.
+or
+
+```bash
+kubectl -n project-h800 scale sts o3db --replicas=1
+```
+
+### Exam Tip
+
+Always check owner:
+
+```bash
+kubectl get pod POD -o yaml | grep ownerReferences -A5
+```
 
 ---
 
-# Q4. Which Pods Die First?
+# 4. Pods Terminated First
 
-### What is being tested?
+### Fast Search
 
-QoS Classes.
+```text
+pod qos class
+```
 
-Kubernetes eviction priority:
+Official:
+
+[Pod QoS Classes](https://kubernetes.io/docs/tasks/configure-pod-container/quality-service-pod/?utm_source=chatgpt.com)
+
+### Solution
+
+Find BestEffort Pods:
+
+```bash
+kubectl get pod -n project-c13 \
+-o custom-columns=NAME:.metadata.name,QOS:.status.qosClass
+```
+
+Write BestEffort pod names.
+
+```bash
+kubectl get pod -n project-c13 \
+-o custom-columns=NAME:.metadata.name,QOS:.status.qosClass
+```
+
+### Exam Tip
+
+Eviction order:
 
 ```text
 BestEffort
-↓
 Burstable
-↓
 Guaranteed
 ```
 
-### BestEffort
+---
 
-No requests
+# 5. Kustomize HPA
 
-No limits
-
-```yaml
-resources: {}
-```
-
-Dies first.
-
-### Burstable
-
-Requests defined.
-
-```yaml
-requests:
-```
-
-### Guaranteed
-
-Requests = Limits
-
-```yaml
-requests:
- cpu: 100m
-
-limits:
- cpu: 100m
-```
-
-Protected most.
-
-### Memory Trick
-
-Think:
+### Fast Search
 
 ```text
-BestEffort = Begging
-Burstable = Basic
-Guaranteed = VIP
+kustomize patches
 ```
+
+Official:
+
+[Kustomize Task](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/?utm_source=chatgpt.com)
+
+### Solution
+
+Delete ConfigMap from kustomization.
+
+Add HPA yaml:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-gateway
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50
+```
+
+Prod overlay:
+
+```yaml
+maxReplicas: 6
+```
+
+Apply:
+
+```bash
+kubectl kustomize staging | kubectl apply -f -
+kubectl kustomize prod | kubectl apply -f -
+```
+
+### Exam Tip
+
+Always:
+
+```bash
+grep -R apiVersion .
+```
+
+to quickly find kustomize files.
 
 ---
 
-# Q5. HPA
+# 6. PV PVC Deployment
 
-### What is being tested?
-
-Autoscaling.
-
-HPA watches:
+### Fast Search
 
 ```text
-CPU
-Memory
-Custom metrics
+persistent volume claim example
 ```
 
-Example:
+Official:
+
+[Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/?utm_source=chatgpt.com)
+
+### Solution
+
+PV:
 
 ```yaml
-averageUtilization: 50
+capacity:
+  storage: 2Gi
+accessModes:
+- ReadWriteOnce
+hostPath:
+  path: /Volumes/Data
+storageClassName: ""
 ```
 
-means:
+PVC:
 
-```text
-Target CPU = 50%
+```yaml
+resources:
+  requests:
+    storage: 2Gi
+storageClassName: ""
 ```
 
-If actual:
+Deployment:
 
-```text
-80%
+```yaml
+image: httpd:2-alpine
+mountPath: /tmp/safari-data
 ```
 
-scale up.
+### Exam Tip
 
-If actual:
-
-```text
-10%
-```
-
-scale down.
-
-### Why min/max replicas?
-
-Prevents:
-
-```text
-0 pods
-1000 pods
-```
-
-situations.
-
----
-
-# Q6. PV PVC Deployment
-
-### What is being tested?
-
-Storage binding.
-
-Think:
-
-```text
-PV = Supply
-PVC = Demand
-```
-
-Example:
-
-```text
-PV = 10Gi available
-PVC = asks 2Gi
-```
-
-Binding occurs.
-
-### Why storageClassName: ""
-
-Without it:
-
-```text
-Dynamic provisioning may occur
-```
-
-Question wants static binding.
-
-So:
+For static binding:
 
 ```yaml
 storageClassName: ""
 ```
 
-on both.
-
-### Mental Model
-
-```text
-Application
-   ↓
-PVC
-   ↓
-PV
-   ↓
-Disk
-```
+on BOTH PV and PVC.
 
 ---
 
-# Q7. Metrics Server
+# 7. Metrics Scripts
 
-### What is being tested?
+### Solution
 
-Cluster monitoring basics.
-
-Metrics Server provides:
+node.sh
 
 ```bash
+#!/bin/bash
 kubectl top nodes
-kubectl top pods
 ```
 
-without Prometheus.
-
-### Difference
+pod.sh
 
 ```bash
-kubectl get pods
+#!/bin/bash
+kubectl top pods --containers -A
 ```
 
-shows state.
-
-```bash
-kubectl top pods
-```
-
-shows resource usage.
-
-Example:
+### Fast Search
 
 ```text
-CPU
-Memory
+kubectl top pods containers
 ```
 
 ---
 
-# Q8. Upgrade Worker Node
+# 8. Upgrade Worker Node
 
-### What is being tested?
-
-Cluster lifecycle.
-
-Rule:
+### Fast Search
 
 ```text
-Worker version
-≤
-Control Plane version
+kubeadm upgrade node worker
 ```
 
-Worker cannot be newer.
+Official:
 
-### Upgrade Order
+[Upgrade Kubernetes Cluster](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-upgrade/?utm_source=chatgpt.com)
 
-```text
-Control Plane
-↓
-Workers
-```
+### Workflow
 
-Always.
-
-### Why join?
-
-Node object may exist:
-
-```text
-NotReady
-```
-
-because kubelet isn't registered.
-
-Join command:
+Controlplane version:
 
 ```bash
-kubeadm join
+kubectl version
 ```
 
-adds node into cluster.
+SSH:
+
+```bash
+ssh cka3962-node1
+```
+
+Install exact version:
+
+```bash
+apt-cache madison kubeadm
+```
+
+```bash
+apt install kubeadm=<VERSION>
+```
+
+Join:
+
+```bash
+kubeadm token create --print-join-command
+```
+
+Run on worker.
+
+### Exam Tip
+
+Memorize:
+
+```bash
+kubeadm token create --print-join-command
+```
 
 ---
 
-# Q9. ServiceAccount API Access
+# 9. Read Secrets via API
 
-### What is being tested?
-
-Authentication.
-
-Every Pod automatically gets:
+### Fast Search
 
 ```text
-Token
-CA certificate
-Namespace
+serviceaccount token kubernetes api curl
 ```
 
-mounted under:
+### Solution
 
-```text
-/var/run/secrets/kubernetes.io/serviceaccount/
+Create Pod:
+
+```yaml
+serviceAccountName: secret-reader
 ```
 
-### Flow
-
-Pod
-
-↓
-
-ServiceAccount
-
-↓
-
-JWT Token
-
-↓
-
-API Server
-
-Example:
+Exec:
 
 ```bash
-curl \
--H "Authorization: Bearer TOKEN"
+TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
 ```
 
-### Real-world use
+```bash
+curl -k \
+-H "Authorization: Bearer $TOKEN" \
+https://kubernetes.default/api/v1/namespaces/project-swan/secrets
+```
 
-Controllers like:
+Save result:
 
-* ArgoCD
-* ExternalDNS
-* Cert Manager
+```bash
+> /opt/course/9/result.json
+```
 
-all do this.
+### Exam Tip
+
+Useful variables:
+
+```bash
+TOKEN=
+CACERT=
+```
 
 ---
 
-# Q10. RBAC
+# 10. SA Role RoleBinding
 
-### What is being tested?
-
-Authorization.
-
-Authentication asks:
+### Fast Search
 
 ```text
-Who are you?
+rbac role create secrets configmaps
 ```
 
-Authorization asks:
+Official:
 
-```text
-What can you do?
-```
-
-### Flow
-
-```text
-ServiceAccount
-↓
-Role
-↓
-RoleBinding
-```
+[RBAC Authorization](https://kubernetes.io/docs/reference/access-authn-authz/rbac/?utm_source=chatgpt.com)
 
 Role:
 
 ```yaml
+resources:
+- secrets
+- configmaps
+
 verbs:
 - create
+```
+
+Bind to SA processor.
+
+### Exam Tip
+
+Quick generator:
+
+```bash
+kubectl create role
+```
+
+---
+
+# 11. DaemonSet
+
+### Fast Search
+
+```text
+daemonset toleration control plane
+```
+
+Official:
+
+[DaemonSet Concept](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/?utm_source=chatgpt.com)
+
+Need toleration:
+
+```yaml
+- key: node-role.kubernetes.io/control-plane
+  operator: Exists
+  effect: NoSchedule
 ```
 
 Resources:
 
 ```yaml
-- secrets
-- configmaps
+requests:
+  cpu: 10m
+  memory: 10Mi
 ```
 
-Means:
+### Exam Tip
 
-```text
-Can create only
-Cannot delete
-Cannot update
-Cannot get
+Fastest:
+
+```bash
+kubectl create deployment ds-important \
+--image=httpd:2-alpine \
+--dry-run=client -o yaml
 ```
+
+Convert Deployment → DaemonSet.
 
 ---
 
-# Q11. DaemonSet
+# 12. Deployment With Pod AntiAffinity
 
-### What is being tested?
-
-One Pod per Node.
-
-Deployment:
+### Fast Search
 
 ```text
-Number of replicas
+requiredDuringSchedulingIgnoredDuringExecution hostname
 ```
 
-DaemonSet:
+Official:
 
-```text
-One Pod per node
+[Assign Pods to Nodes using Affinity](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/?utm_source=chatgpt.com)
+
+Key:
+
+```yaml
+podAntiAffinity:
+  requiredDuringSchedulingIgnoredDuringExecution:
+  - labelSelector:
+      matchExpressions:
+      - key: id
+        operator: In
+        values:
+        - very-important
+    topologyKey: kubernetes.io/hostname
 ```
 
-Examples:
+### Exam Tip
 
-* Fluentd
-* Datadog
-* Prometheus Node Exporter
-
-### Why toleration?
-
-Control Plane usually has:
-
-```text
-NoSchedule
-```
-
-taint.
-
-Without toleration:
-
-```text
-DaemonSet skips control plane
-```
-
-Question specifically wants:
-
-```text
-All nodes
-```
-
-so toleration needed.
-
----
-
-# Q12. AntiAffinity
-
-### What is being tested?
-
-Pod placement.
-
-Question:
+This is the classic:
 
 ```text
 3 replicas
 2 workers
+1 Pending
 ```
 
-Requirement:
-
-```text
-Only one pod per node
-```
-
-Result:
-
-```text
-Worker1 -> Pod1
-Worker2 -> Pod2
-Pending -> Pod3
-```
-
-### Why?
-
-AntiAffinity says:
-
-```text
-Don't place same app on same node
-```
-
-Scheduler obeys.
-
-No free node:
-
-```text
-Pending
-```
+Question.
 
 ---
 
-# Q13. Gateway API
+# 13. Gateway API
 
-### What is being tested?
-
-Modern replacement for Ingress.
-
-Old:
+### Fast Search
 
 ```text
-Ingress
+httproute backendrefs matches headers
 ```
 
-New:
+Official:
 
-```text
-Gateway
-HTTPRoute
+[Gateway API HTTPRoute](https://gateway-api.sigs.k8s.io/api-types/httproute/?utm_source=chatgpt.com)
+
+Key idea:
+
+```yaml
+matches:
+- path:
+    type: PathPrefix
+    value: /auto
+  headers:
+  - type: Exact
+    name: User-Agent
+    value: mobile
 ```
 
-### Relationship
+Backend:
 
-```text
-Gateway
-   ↓
-HTTPRoute
-   ↓
-Service
-   ↓
-Pod
+```yaml
+backendRefs:
+- name: mobile
 ```
 
-### Header Routing
+Second rule:
 
-This question adds:
-
-```text
-User-Agent=mobile
+```yaml
+/auto
 ```
 
-Route to:
+without header → desktop.
 
-```text
-mobile service
-```
+### Exam Tip
 
-Otherwise:
-
-```text
-desktop service
-```
-
-This is Layer-7 routing.
-
----
-
-# Q14. Certificates
-
-### What is being tested?
-
-Cluster security.
-
-Kubernetes certificates usually expire after:
-
-```text
-1 year
-```
-
-If expired:
-
-```text
-kubectl stops working
-```
-
-API Server may fail.
-
-### Check
-
-OpenSSL:
+Always inspect existing Gateway:
 
 ```bash
-openssl x509
+kubectl get gateway -A
 ```
 
-Kubeadm:
+---
+
+# 14. Certificate Expiry
+
+### Fast Search
+
+```text
+kubeadm certs check-expiration
+```
+
+Official:
+
+[kubeadm certs check-expiration](https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-certs/?utm_source=chatgpt.com)
+
+Check:
+
+```bash
+openssl x509 -in \
+/etc/kubernetes/pki/apiserver.crt \
+-noout -enddate
+```
+
+Compare:
 
 ```bash
 kubeadm certs check-expiration
 ```
 
-### Renew
+Renew command file:
 
 ```bash
+echo "kubeadm certs renew apiserver" \
+> /opt/course/14/kubeadm-renew-certs.sh
+```
+
+### Exam Tip
+
+Memorize:
+
+```bash
+kubeadm certs check-expiration
 kubeadm certs renew apiserver
 ```
 
-Very common CKA topic.
-
 ---
 
-# Q15. NetworkPolicy
+# 15. NetworkPolicy
 
-### What is being tested?
-
-Micro-segmentation.
-
-Without policy:
+### Fast Search
 
 ```text
-All Pods
-↔
-All Pods
+network policy egress ports podselector
 ```
 
-can communicate.
+Official:
 
-Question wants:
+[Network Policies](https://kubernetes.io/docs/concepts/services-networking/network-policies/?utm_source=chatgpt.com)
 
-```text
-backend
-↓
-db1:1111
+Use:
 
-backend
-↓
-db2:2222
+```yaml
+policyTypes:
+- Egress
 ```
 
-ONLY.
+Allow:
 
-Everything else blocked.
-
-### Mental Picture
-
-```text
-backend
-   ├── db1:1111 ✔
-   ├── db2:2222 ✔
-   └── vault:3333 ✘
+```yaml
+to:
+- podSelector:
+    matchLabels:
+      app: db1
+  ports:
+  - port: 1111
 ```
 
----
+and
 
-# Q16. CoreDNS
-
-### What is being tested?
-
-Cluster DNS.
-
-Normal:
-
-```text
-service.namespace.svc.cluster.local
+```yaml
+app: db2
+port: 2222
 ```
 
-Question wants:
+### Exam Tip
 
-```text
-service.namespace.svc.custom-domain
-```
-
-also working.
-
-### Why rewrite?
-
-CoreDNS receives:
-
-```text
-custom-domain
-```
-
-and rewrites it internally:
-
-```text
-cluster.local
-```
-
-Application doesn't notice.
-
-### CoreDNS Exam Rule
-
-Always:
+Start from:
 
 ```bash
-kubectl get cm coredns -n kube-system -o yaml > backup.yaml
+kubectl create networkpolicy --help
 ```
-
-before editing.
 
 ---
 
-# Q17. crictl Investigation
+# 16. CoreDNS
 
-### What is being tested?
-
-Container Runtime Interface (CRI).
-
-Kubernetes:
+### Fast Search
 
 ```text
-kubectl
+coredns rewrite plugin
 ```
 
-talks to:
+Official:
 
-```text
-API Server
+[CoreDNS Plugins Overview](https://coredns.io/plugins/?utm_source=chatgpt.com)
+
+Backup:
+
+```bash
+kubectl get cm coredns \
+-n kube-system \
+-o yaml \
+> /opt/course/16/coredns_backup.yaml
 ```
 
-But node actually runs containers through:
+Add rewrite:
 
 ```text
-containerd
+rewrite name suffix custom-domain cluster.local
 ```
 
-### crictl
+Restart:
 
-Equivalent of Docker commands:
-
-| Docker         | crictl         |
-| -------------- | -------------- |
-| docker ps      | crictl ps      |
-| docker logs    | crictl logs    |
-| docker inspect | crictl inspect |
-
-### What is runtimeType?
-
-Shows runtime used:
-
-```text
-io.containerd.runc.v2
+```bash
+kubectl rollout restart deployment coredns -n kube-system
 ```
 
-or similar.
+### Exam Tip
 
-### Investigation Flow
+Always backup first.
+
+---
+
+# 17. crictl Investigation
+
+### Fast Search
 
 ```text
-Pod
-↓
-Node
-↓
-SSH
-↓
+crictl ps inspect logs
+```
+
+Official:
+
+[crictl User Guide](https://github.com/kubernetes-sigs/cri-tools/blob/master/docs/crictl.md?utm_source=chatgpt.com)
+
+Create Pod.
+
+Find node:
+
+```bash
+kubectl get pod -o wide
+```
+
+SSH node.
+
+Container:
+
+```bash
+sudo crictl ps
+```
+
+Inspect:
+
+```bash
+sudo crictl inspect CONTAINER_ID
+```
+
+Logs:
+
+```bash
+sudo crictl logs CONTAINER_ID
+```
+
+runtimeType:
+
+```bash
+sudo crictl inspect CONTAINER_ID | grep runtimeType
+```
+
+### Exam Tip
+
+Most common commands:
+
+```bash
 crictl ps
-↓
 crictl inspect
-↓
 crictl logs
 ```
 
 ---
 
-# Most Common CKA Mindset
+# CKA Last-Minute Search Strategy
 
-Before touching the keyboard, classify the question:
+During the exam, use kubernetes.io search with only these keywords:
 
-| If Question Mentions | Immediately Think |
-| -------------------- | ----------------- |
-| Pod count            | scale             |
-| Storage              | PV/PVC            |
-| Permissions          | RBAC              |
-| ServiceAccount       | Token/API         |
-| Network              | NetworkPolicy     |
-| One Pod per Node     | DaemonSet         |
-| Separate Pods        | AntiAffinity      |
-| Autoscaling          | HPA               |
-| Certificates         | kubeadm certs     |
-| DNS                  | CoreDNS           |
-| Worker upgrade       | kubeadm join      |
-| Container runtime    | crictl            |
+| Task           | Search                    |
+| -------------- | ------------------------- |
+| PV/PVC         | persistent volume claim   |
+| HPA            | horizontal pod autoscaler |
+| RBAC           | role rolebinding          |
+| NetworkPolicy  | network policy egress     |
+| DaemonSet      | daemonset                 |
+| Affinity       | pod anti affinity         |
+| Gateway        | httproute                 |
+| Upgrade        | kubeadm upgrade           |
+| Certs          | kubeadm certs             |
+| CoreDNS        | coredns rewrite           |
+| Storage        | hostpath pv               |
+| ServiceAccount | service account token     |
 
-This classification alone can save several minutes per question during the exam.
+These searches usually get you to the correct page in under 10 seconds during the CKA exam.
